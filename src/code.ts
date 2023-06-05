@@ -161,14 +161,18 @@ function onSelectionChange() {
         const hotspotsData = containedHotspots.map((node) => {
           const hotspotDataString = node.getPluginData("hotspot");
           const hotspotData = JSON.parse(hotspotDataString); /* id, name */
+          const nodeCenter = {
+            x: node.x + node.width / 2,
+            y: node.y + node.height / 2,
+          };
           return {
             __nodeId: node.id,
             id: hotspotData.id,
             name: hotspotData.name,
-            left: node.x / frame.width,
-            top: node.y / frame.height,
-            x: node.x,
-            y: node.y,
+            left: nodeCenter.x / frame.width,
+            top: nodeCenter.y / frame.height,
+            x: nodeCenter.x,
+            y: nodeCenter.y,
           };
         });
 
