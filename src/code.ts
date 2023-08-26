@@ -100,7 +100,50 @@ figma.ui.onmessage = (msg) => {
   onSelectionChange();
 };
 
+let notifications: NotificationHandler[] = [];
+function cancelAllNotifications() {
+  notifications.forEach((notification) => notification.cancel());
+  notifications = [];
+}
+
+function convertNodesToHotspots(nodes: SceneNode[]): SceneNode[] {
+  let newHotspots: SceneNode[] = [];
+  nodes
+    .filter((node) => !isHotspotNode(node))
+    .forEach((node) => {
+      const containingFrame = findContainingFrame(node);
+      if (containingFrame) {
+        const hotspotNode = createHotspotInstance(hotspotComponent, {
+          id: slugify(node.name, { lower: true }),
+          name: node.name,
+        });
+
+        hotspotNode.x = node.x + node.width / 2 - hotspotNode.width / 2;
+        hotspotNode.y = node.y + node.height / 2 - hotspotNode.height / 2;
+
+        const hotspotIndex = nodes.indexOf(node);
+        updateHotspotLabel(hotspotNode, String(hotspotIndex + 1));
+
+        containingFrame.appendChild(hotspotNode);
+        node.remove();
+
+        newHotspots.push(hotspotNode);
+      }
+    });
+
+  return newHotspots;
+}
+
+function isImage(node: RectangleNode): boolean {
+  if (Array.isArray(node.fills)) {
+    return node.fills.some((fill) => fill.type === "IMAGE");
+  }
+  return false;
+}
+
 function onSelectionChange() {
+  let safeToCancelAllNotifications = true;
+
   const selection = figma.currentPage.selection;
   if (selection.length === 0) {
     figma.ui.postMessage({
@@ -133,6 +176,49 @@ function onSelectionChange() {
         uniqueContainingFrameIds.add(containingFrame.id);
       }
     });
+
+    // Check if frame contains other types of nodes. If so, show notification with convert action.
+    if (
+      uniqueContainingFrameIds.size > 0 &&
+      selectedFramesWithHotspots.length === 0 &&
+      selectedHotspots.length === 0
+    ) {
+      let otherNodeTypes: SceneNode[] = [];
+      uniqueContainingFrameIds.forEach((frameId) => {
+        const frame = figma.getNodeById(frameId as string) as FrameNode;
+        const convertTargetNodes = frame.children.filter(
+          (node) =>
+            node.type === "COMPONENT" ||
+            node.type === "INSTANCE" ||
+            node.type === "ELLIPSE" ||
+            (node.type === "RECTANGLE" && !isImage(node)) ||
+            node.type === "POLYGON" ||
+            node.type === "VECTOR" ||
+            node.type === "GROUP" ||
+            node.type === "SHAPE_WITH_TEXT"
+        );
+        otherNodeTypes = [...otherNodeTypes, ...convertTargetNodes];
+      });
+      if (otherNodeTypes.length > 0) {
+        cancelAllNotifications();
+        const convertNotification = figma.notify(
+          "Convert frame nodes to hotspots?",
+          {
+            timeout: 1000 * 10, // 10 seconds
+            button: {
+              text: "Convert",
+              action: () => {
+                const convertedNodes = convertNodesToHotspots(otherNodeTypes);
+                figma.currentPage.selection = [...convertedNodes];
+                convertNotification.cancel();
+              },
+            },
+          }
+        );
+        notifications.push(convertNotification);
+        safeToCancelAllNotifications = false;
+      }
+    }
 
     if (uniqueContainingFrameIds.size === 0) {
       figma.ui.postMessage({
@@ -218,6 +304,10 @@ function onSelectionChange() {
         }
       }
     }
+  }
+
+  if (safeToCancelAllNotifications) {
+    cancelAllNotifications();
   }
 }
 
